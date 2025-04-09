@@ -1,6 +1,12 @@
 # 更新日志 (Changelog)
 
-## 版本 1.1.1 (当前版本)
+## 版本 1.1.2 (当前版本)
+- 修复了 MCP SDK 导入路径重复问题，从 `dist/esm/server/index.js` 更改为 `dist/esm/server.js`
+- 修复了 NoStr 库中 `relay.publish()` 方法的兼容性问题
+- 更新了发布机制，从事件监听器模式更改为异步/await 模式
+- 增强了错误处理机制，加入了更多 try/catch 块
+
+## 版本 1.1.1
 - 修复了 MCP SDK 导入路径问题，从 `/server` 更改为 `/dist/esm/server/index.js`
 - 增加了对 ES 模块的更好支持，添加了 `--es-module-specifier-resolution=node` 标志
 - 添加了 `concurrently` 依赖项，无需 tmux 即可启动所有服务

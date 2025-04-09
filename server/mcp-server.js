@@ -1,5 +1,5 @@
 // Import the MCP Server SDK
-import { McpServer, ResourceTemplate, Events } from "@modelcontextprotocol/sdk/dist/esm/server/index.js";
+import { McpServer, ResourceTemplate, Events } from "@modelcontextprotocol/sdk/dist/esm/server.js";
 // Import additional needed modules
 import fs from 'fs';
 import { fileURLToPath } from 'url';

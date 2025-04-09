@@ -91,13 +91,12 @@ async function publishToNoStr(message) {
     const signedEvent = finishEvent(event, privateKey);
     
     // Publish to relay
-    const pub = relay.publish(signedEvent);
-    pub.on('ok', () => {
+    try {
+      await relay.publish(signedEvent);
       console.log('Response published to NoStr relay');
-    });
-    pub.on('failed', (reason) => {
-      console.error('Failed to publish response to NoStr:', reason);
-    });
+    } catch (publishError) {
+      console.error('Failed to publish response to NoStr:', publishError);
+    }
   } catch (error) {
     console.error('Error publishing to NoStr:', error);
   }
