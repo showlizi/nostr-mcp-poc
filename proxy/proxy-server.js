@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 // NoStr configuration
 const privateKey = generatePrivateKey(); // or use a fixed private key for consistency
 const publicKey = getPublicKey(privateKey);
-const relayUrl = 'wss://relay.damus.io'; // Example NoStr relay
+const relayUrl = 'https://dev-relay.dephy.dev'; // Example NoStr relay
 const relay = relayInit(relayUrl);
 
 // Path to MCP server
@@ -30,7 +30,7 @@ async function connectToRelay() {
     // Subscribe to events from the client proxy
     const sub = relay.sub([
       {
-        kinds: [1], // Regular text note events
+        kinds: [1573], // Regular text note events
         "#t": ["mcp-request"], // Tag for MCP requests
       }
     ]);
@@ -80,10 +80,10 @@ async function publishToNoStr(message) {
   try {
     // Create event
     const event = {
-      kind: 1,
+      kind: 1573,
       pubkey: publicKey,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [['t', 'mcp-response']], // Tag for MCP responses
+      tags: [['s', '0'], ['p', publicKey]], // Tag for MCP responses
       content: JSON.stringify({ message })
     };
     
@@ -114,28 +114,30 @@ function startMCPServer() {
         const lines = data.toString().trim().split('\n');
         
         for (const line of lines) {
-          if (!line) continue;
+          if (!line || !line.trim()) continue;
           
           try {
             const response = JSON.parse(line);
             console.log('Received response from MCP server:', response);
             
-            // Extract the content from MCP response format
-            let messageContent = 'Response from MCP server';
-            
-            // Handle different MCP response types
-            if (response.method === 'resource.update' && response.params?.body?.output?.message?.content) {
-              messageContent = response.params.body.output.message.content;
-            } else if (response.result?.output?.message?.content) {
-              messageContent = response.result.output.message.content;
-            } else if (response.params?.events?.complete?.output?.message?.content) {
-              messageContent = response.params.events.complete.output.message.content;
+            // Handle only valid JSON responses
+            if (response && (response.message || response.output || response.error)) {
+              let messageContent = 'Response from MCP server';
+              
+              if (response.error) {
+                messageContent = `Error: ${response.error}`;
+              } else if (response.message) {
+                messageContent = response.message;
+              } else if (response.output?.message?.content) {
+                messageContent = response.output.message.content;
+              }
+              
+              // Publish the response back to NoStr
+              publishToNoStr(messageContent);
             }
-            
-            // Publish the response back to NoStr
-            publishToNoStr(messageContent);
           } catch (parseError) {
-            console.error('Error parsing MCP server response:', parseError);
+            // Ignore parsing errors for non-JSON output
+            console.debug('Non-JSON output from MCP server:', line);
           }
         }
       } catch (error) {
@@ -144,7 +146,8 @@ function startMCPServer() {
     });
     
     mcpProcess.stderr.on('data', (data) => {
-      console.error(`MCP server error: ${data.toString()}`);
+      // Log stderr output as debug info
+      console.debug(`MCP server log: ${data.toString()}`);
     });
     
     mcpProcess.on('close', (code) => {

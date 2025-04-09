@@ -1,6 +1,10 @@
 # 更新日志 (Changelog)
 
-## 版本 1.1.2 (当前版本)
+## 版本 1.1.3 (当前版本)
+- 修复了 Events 导入路径问题，从 SDK 主模块分离导入 Events
+- 更新了导入路径，从 `server/mcp.js` 更改为 `dist/esm/server.js` 和 `dist/esm/events.js`
+
+## 版本 1.1.2
 - 修复了 MCP SDK 导入路径重复问题，从 `dist/esm/server/index.js` 更改为 `dist/esm/server.js`
 - 修复了 NoStr 库中 `relay.publish()` 方法的兼容性问题
 - 更新了发布机制，从事件监听器模式更改为异步/await 模式

@@ -13,7 +13,7 @@ const port = 3001;
 // NoStr configuration
 const privateKey = generatePrivateKey(); // or use a fixed private key for consistency
 const publicKey = getPublicKey(privateKey);
-const relayUrl = 'wss://relay.damus.io'; // Example NoStr relay
+const relayUrl = 'https://dev-relay.dephy.dev'; // Example NoStr relay
 const relay = relayInit(relayUrl);
 
 // Store connected clients
@@ -33,8 +33,8 @@ async function connectToRelay() {
     // Subscribe to events from the server proxy
     const sub = relay.sub([
       {
-        kinds: [1], // Regular text note events
-        "#t": ["mcp-response"], // Tag for MCP responses
+        kinds: [1573], // Regular text note events
+        "#p": [publicKey], // Tag for MCP responses
       }
     ]);
     
@@ -102,10 +102,10 @@ async function publishToNoStr(message) {
   try {
     // Create event
     const event = {
-      kind: 1,
+      kind: 1573,
       pubkey: publicKey,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [['t', 'mcp-request']], // Tag for MCP requests
+      tags: [['s', '0'], ['p', publicKey]], // Tag for MCP requests
       content: JSON.stringify({ message })
     };
     
