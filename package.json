@@ -1,38 +1,42 @@
 {
   "name": "nostr-mcp-poc",
-  "version": "1.0.0",
-  "description": "PoC for Client <-- SSE --> Proxy <-- STDIO over NoStr --> Proxy <-- STDIO -> MCP Server",
+  "version": "1.1.0",
+  "description": "Enhanced PoC for Client <-- SSE --> Proxy <-- STDIO over NoStr --> Proxy <-- STDIO -> MCP Server",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start:client": "node client/client.js",
     "start:proxy1": "node proxy/proxy-client.js",
     "start:proxy2": "node proxy/proxy-server.js",
-    "start:server": "node --experimental-modules --es-module-specifier-resolution=node server/mcp-server.js",
+    "start:server": "node --es-module-specifier-resolution=node server/mcp-server.js",
     "start:all": "node chmod-script.js && bash ./start-all.sh",
-    "start:all:concurrent": "concurrently \"npm run start:server\" \"npm run start:proxy2\" \"npm run start:proxy1\" \"npm run start:client\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2",
-    "dotenv": "^16.4.5"
+    "start:all:concurrent": "concurrently \"npm run start:server\" \"npm run start:proxy2\" \"npm run start:proxy1\" \"npm run start:client\""
   },
   "keywords": [
     "nostr",
     "sse",
     "mcp",
-    "proxy"
+    "proxy",
+    "dephy",
+    "decentralized"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
+    "@noble/hashes": "^1.3.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^4.18.2",
-    "nostr-tools": "^1.17.0",
+    "nostr-tools": "^2.1.3",
     "websocket-polyfill": "^0.0.3",
-    "winston": "^3.17.0",
-    "ws": "^8.14.2"
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

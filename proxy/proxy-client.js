@@ -1,56 +1,113 @@
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import { generatePrivateKey, getPublicKey, relayInit, finishEvent } from 'nostr-tools';
-import WebSocket from 'ws';
-
-// Provide a global WebSocket for environments that might not have it
-global.WebSocket = WebSocket;
+import { finalizeEvent, Relay } from 'nostr-tools';
+import 'websocket-polyfill';
+import * as utils from '../utils.js';
 
 const app = express();
 const port = 3001;
 
-// NoStr configuration
-const privateKey = generatePrivateKey(); // or use a fixed private key for consistency
-const publicKey = getPublicKey(privateKey);
-const relayUrl = 'https://dev-relay.dephy.dev'; // Example NoStr relay
-const relay = relayInit(relayUrl);
+// Create a logger for this component
+const logger = utils.createLogger('CLIENT-PROXY');
+
+// Get configuration
+const senderSecretKey = utils.getSenderSecretKey();
+const publicKey = utils.getSenderPublicKey(senderSecretKey);
+const relayUrl = utils.getRelayUrl();
+
+logger.info(`Initialized with public key: ${publicKey}`);
+logger.info(`Using relay URL: ${relayUrl}`);
 
 // Store connected clients
 const clients = new Map();
 let clientIdCounter = 1;
 
+// Relay instance
+let relay = null;
+let subscription = null;
+
 // Enable CORS and JSON body parsing
 app.use(cors());
 app.use(bodyParser.json());
 
-// Connect to NoStr relay
+/**
+ * Connect to NoStr relay with retry mechanism
+ */
 async function connectToRelay() {
   try {
-    await relay.connect();
-    console.log(`Connected to NoStr relay: ${relayUrl}`);
-    
-    // Subscribe to events from the server proxy
-    const sub = relay.sub([
-      {
-        kinds: [1573], // Regular text note events
-        "#p": [publicKey], // Tag for MCP responses
-      }
-    ]);
-    
-    sub.on('event', (event) => {
+    if (relay) {
+      // Close previous connection if exists
       try {
-        const content = JSON.parse(event.content);
-        broadcastToClients(content.message || "Received message from server");
-      } catch (error) {
-        console.error('Error processing NoStr event:', error);
-        broadcastToClients("Error processing response");
+        relay.close();
+      } catch (e) {
+        logger.debug('Error closing previous relay connection:', e);
+      }
+    }
+    
+    // Initialize relay and connect
+    relay = new Relay(relayUrl);
+    await relay.connect();
+    
+    logger.info(`Connected to NoStr relay: ${relayUrl}`);
+    
+    // Subscribe to responses
+    setupSubscription();
+    
+  } catch (error) {
+    logger.error('Failed to connect to NoStr relay:', error);
+    setTimeout(connectToRelay, 5000); // Retry connection after 5 seconds
+  }
+}
+
+/**
+ * Setup subscription to NoStr events
+ */
+function setupSubscription() {
+  try {
+    // Create filter for events
+    const filter = {
+      kinds: [1573], // DePHY message kind
+      "#p": [publicKey], // Events addressed to us
+    };
+    
+    // Subscribe
+    subscription = relay.subscribe([filter], {
+      onevent: handleNostrEvent,
+      oneose: () => {
+        logger.info('EOSE: Subscription is now active and receiving real-time events');
       }
     });
     
+    logger.info('NoStr subscription created');
   } catch (error) {
-    console.error('Failed to connect to NoStr relay:', error);
-    setTimeout(connectToRelay, 5000); // Retry connection
+    logger.error('Error setting up NoStr subscription:', error);
+  }
+}
+
+/**
+ * Handle incoming NoStr events
+ */
+function handleNostrEvent(event) {
+  try {
+    logger.info('Received NoStr event:', {
+      id: event.id,
+      pubkey: event.pubkey,
+      created_at: new Date(event.created_at * 1000).toLocaleString()
+    });
+    
+    // Parse content
+    let content;
+    try {
+      content = JSON.parse(event.content);
+    } catch (e) {
+      content = { message: event.content };
+    }
+    
+    // Broadcast to all connected clients
+    broadcastToClients(content.message || "Received message from server");
+  } catch (error) {
+    logger.error('Error processing NoStr event:', error);
   }
 }
 
@@ -72,12 +129,12 @@ app.get('/events', (req, res) => {
   // Store the client connection
   clients.set(clientId, res);
   
-  console.log(`Client ${clientId} connected`);
+  logger.info(`Client ${clientId} connected`);
   
   // Handle client disconnect
   req.on('close', () => {
     clients.delete(clientId);
-    console.log(`Client ${clientId} disconnected`);
+    logger.info(`Client ${clientId} disconnected`);
   });
 });
 
@@ -85,70 +142,124 @@ app.get('/events', (req, res) => {
 app.post('/message', async (req, res) => {
   try {
     const { message } = req.body;
-    console.log('Received message from client:', message);
+    logger.info('Received message from client:', message);
+    
+    // Check if message is empty
+    if (!message || message.trim() === '') {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
     
     // Send the message over NoStr
-    await publishToNoStr(message);
+    const result = await publishMessage(message);
     
-    res.status(200).json({ status: 'Message sent to NoStr relay' });
+    if (result.success) {
+      res.status(200).json({ 
+        status: 'Message sent', 
+        id: result.event.id 
+      });
+    } else {
+      res.status(500).json({ error: result.error });
+    }
   } catch (error) {
-    console.error('Error handling message:', error);
+    logger.error('Error handling message:', error);
     res.status(500).json({ error: 'Failed to process message' });
   }
 });
 
-// Publish message to NoStr network
-async function publishToNoStr(message) {
+/**
+ * Publish a message to NoStr network
+ * @param {string} message The message to publish
+ * @returns {Promise<Object>} Result of the publishing operation
+ */
+/**
+ * Publish a message to NoStr network
+ * @param {string} message The message to publish
+ * @returns {Promise<Object>} Result of the publishing operation
+ */
+async function publishMessage(message) {
   try {
-    // Create event
-    const event = {
-      kind: 1573,
-      pubkey: publicKey,
-      created_at: Math.floor(Date.now() / 1000),
-      tags: [['s', '0'], ['p', publicKey]], // Tag for MCP requests
-      content: JSON.stringify({ message })
+    // Format the content
+    const contentObj = {
+      type: 'mcp-request',
+      message: message,
+      timestamp: new Date().toISOString()
     };
+    const contentStr = JSON.stringify(contentObj);
     
-    // Sign the event
-    const signedEvent = finishEvent(event, privateKey);
+    // Create and finalize event
+    const event = finalizeEvent({
+      kind: 1573, // DePHY message kind
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["s", "0"], // Subject tag
+        ["p", utils.getRecipientPublicKey()] // Recipient tag
+      ],
+      content: contentStr,
+    }, senderSecretKey);
+    
+    logger.info('Publishing message to NoStr:', {
+      id: event.id,
+      recipient: utils.getRecipientPublicKey(),
+      content: contentStr.length > 100 ? contentStr.substring(0, 100) + '...' : contentStr
+    });
+    
+    // Make sure relay is connected
+    if (!relay || !relay.connected) {
+      await connectToRelay();
+    }
     
     // Publish to relay
-    try {
-      await relay.publish(signedEvent);
-      console.log('Message published to NoStr relay');
-    } catch (publishError) {
-      console.error('Failed to publish to NoStr:', publishError);
-    }
+    await relay.publish(event);
+    
+    logger.info('Message published to NoStr relay');
+    return { success: true, event };
   } catch (error) {
-    console.error('Error publishing to NoStr:', error);
-    throw error;
+    logger.error('Error publishing message:', error);
+    return { success: false, error: error.message };
   }
 }
 
-// Broadcast message to all SSE clients
+/**
+ * Broadcast message to all SSE clients
+ * @param {string} message The message to broadcast
+ */
 function broadcastToClients(message) {
   try {
-    for (const client of clients.values()) {
+    const disconnectedClients = [];
+    
+    for (const [clientId, client] of clients.entries()) {
       try {
         client.write(`data: ${JSON.stringify({ message })}\n\n`);
       } catch (clientError) {
-        console.error(`Error sending message to client: ${clientError.message}`);
-        // Remove the problematic client
-        clients.forEach((value, key) => {
-          if (value === client) {
-            clients.delete(key);
-            console.log(`Removed disconnected client ${key}`);
-          }
-        });
+        logger.error(`Error sending message to client ${clientId}:`, clientError);
+        disconnectedClients.push(clientId);
       }
     }
+    
+    // Clean up disconnected clients
+    for (const clientId of disconnectedClients) {
+      clients.delete(clientId);
+      logger.info(`Removed disconnected client ${clientId}`);
+    }
   } catch (error) {
-    console.error(`Error broadcasting message: ${error.message}`);
+    logger.error('Error broadcasting message:', error);
   }
 }
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Client proxy running at http://localhost:${port}`);
+  logger.info(`Client proxy running at http://localhost:${port}`);
   connectToRelay();
+});
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  logger.info('Shutting down client proxy...');
+  if (subscription) {
+    subscription.close();
+  }
+  if (relay) {
+    relay.close();
+  }
+  process.exit(0);
 });
